@@ -1,0 +1,11 @@
+{
+  "name": "my-todo-list",
+  "version": "1.0.0",
+  "description": "Smart to-do list edge case handling",
+  "scripts": {
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "jsdom": "^23.0.0"
+  }
+}
