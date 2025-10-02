@@ -49,6 +49,7 @@ class TodoApp {
     }
 
     init() {
+        this.nlpPatterns = this.initializeNLPPatterns();
         this.loadTasksFromStorage();
         this.detectBrowserFeatures();
         this.applyBrowserFeatureFallbacks();
@@ -2954,6 +2955,20 @@ Example: ["Review weekly goals", "Plan weekend activities", "Check email"]`;
         return keywords.some(keyword => text.includes(keyword));
     }
 
+    startsWithAny(text, keywords) {
+        const lowerText = text.toLowerCase().trim();
+        return keywords.some(keyword => {
+            const lowerKeyword = keyword.toLowerCase();
+            // Check if text starts with the keyword followed by whitespace or end of string
+            const regex = new RegExp(`^${this.escapeRegExp(lowerKeyword)}(\\s|$)`, 'i');
+            return regex.test(lowerText);
+        });
+    }
+
+    escapeRegExp(string) {
+        return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
     inferPriority(taskText) {
         const text = taskText.toLowerCase();
         if (this.containsAny(text, ['urgent', 'asap', 'critical', 'important', 'immediately'])) {
@@ -3352,7 +3367,7 @@ Example: ["Review weekly goals", "Plan weekend activities", "Check email"]`;
 
         if (!handled) {
             // Enhanced Task Creation with batch processing (including conversational patterns)
-            if (this.containsAny(lowercaseMessage, addIntentPhrases)) {
+            if (this.startsWithAny(lowercaseMessage, addIntentPhrases) || this.containsAny(lowercaseMessage, ['i want to', 'i need to', 'i have to', 'can you add', 'could you add', 'please add'])) {
                 const taskResults = await this.enhancedParseTaskFromMessage(userMessage);
                 if (taskResults.length > 0) {
                     const newTasks = [];
