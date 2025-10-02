@@ -4,6 +4,7 @@ class TodoApp {
         this.tasks = [];
         this.currentEditId = null;
         this.currentFilter = 'all';
+        this.currentCategoryFilter = 'all';
         this.currentSort = 'priority';
         this.currentView = 'all';
         this.chatHistory = [];
@@ -35,6 +36,14 @@ class TodoApp {
                 content: null
             }
         };
+
+        this.aiEnabled = false;
+        const browserWindow = typeof window !== 'undefined' ? window : null;
+        this.apiKey = browserWindow && (browserWindow.OPENROUTER_API_KEY || browserWindow.KIMI_API_KEY) || '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';
+        this.aiModel = 'moonshot/kimi-k2';
+        this.aiEndpoint = 'https://openrouter.ai/api/v1/chat/completions';
+        this.aiReferer = browserWindow && browserWindow.location ? browserWindow.location.origin : '';
+        this.aiTitle = 'My Smart To-Do List';
 
         this.init();
     }
@@ -79,7 +88,10 @@ class TodoApp {
             // Task input elements
             { id: 'task-input', description: 'Task text input field' },
             { id: 'priority-select', description: 'Task priority selector' },
-            { id: 'due-date', description: 'Task due date input' }
+            { id: 'category-select', description: 'Task category selector' },
+            { id: 'due-date', description: 'Task due date input' },
+            { id: 'filter-category', description: 'Category filter dropdown' },
+            { id: 'edit-category-select', description: 'Edit task category selector' }
         ];
 
         const selectorsToCheck = [
@@ -488,6 +500,11 @@ class TodoApp {
             this.renderTasks();
         });
 
+        document.getElementById('filter-category').addEventListener('change', (e) => {
+            this.currentCategoryFilter = e.target.value;
+            this.renderTasks();
+        });
+
         document.getElementById('sort-tasks').addEventListener('change', (e) => {
             this.currentSort = e.target.value;
             this.renderTasks();
@@ -644,6 +661,7 @@ class TodoApp {
             const taskInput = document.getElementById('task-input');
             const prioritySelect = document.getElementById('priority-select');
             const dueDateInput = document.getElementById('due-date');
+            const categorySelect = document.getElementById('category-select');
 
             if (!taskInput || !prioritySelect || !dueDateInput) {
                 console.error('Required form elements missing for adding a task.');
@@ -653,7 +671,8 @@ class TodoApp {
             const rawTaskData = {
                 text: taskInput.value,
                 priority: prioritySelect.value,
-                dueDate: dueDateInput.value
+                dueDate: dueDateInput.value,
+                category: categorySelect ? categorySelect.value : 'general'
             };
 
             const sanitizedTask = this.sanitizeTaskData(rawTaskData);
@@ -699,7 +718,7 @@ class TodoApp {
                 text: sanitizedTask.text,
                 priority: sanitizedTask.priority,
                 dueDate: sanitizedTask.dueDate,
-                category: sanitizedTask.category,
+                category: sanitizedTask.category || 'general',
                 completed: false,
                 createdAt: new Date().toISOString()
             };
@@ -713,6 +732,9 @@ class TodoApp {
             taskInput.value = '';
             dueDateInput.value = '';
             prioritySelect.value = 'medium';
+            if (categorySelect) {
+                categorySelect.value = 'general';
+            }
 
             // Focus back to input
             taskInput.focus();
@@ -803,9 +825,25 @@ class TodoApp {
         this.currentEditId = taskId;
         
         // Populate edit form
-        document.getElementById('edit-task-input').value = task.text;
-        document.getElementById('edit-priority-select').value = task.priority;
-        document.getElementById('edit-due-date').value = task.dueDate || '';
+        const editTaskInput = document.getElementById('edit-task-input');
+        const editPrioritySelect = document.getElementById('edit-priority-select');
+        const editDueDateInput = document.getElementById('edit-due-date');
+        const editCategorySelect = document.getElementById('edit-category-select');
+
+        if (editTaskInput) {
+            editTaskInput.value = task.text;
+        }
+        if (editPrioritySelect) {
+            editPrioritySelect.value = task.priority;
+        }
+        if (editDueDateInput) {
+            editDueDateInput.value = task.dueDate || '';
+        }
+        if (editCategorySelect) {
+            const normalizedCategory = (task.category || 'general').toLowerCase();
+            const optionExists = Array.from(editCategorySelect.options).some(option => option.value === normalizedCategory);
+            editCategorySelect.value = optionExists ? normalizedCategory : 'general';
+        }
 
         // Show modal
         this.openEditModal();
@@ -821,6 +859,7 @@ class TodoApp {
             const taskInput = document.getElementById('edit-task-input');
             const prioritySelect = document.getElementById('edit-priority-select');
             const dueDateInput = document.getElementById('edit-due-date');
+            const categorySelect = document.getElementById('edit-category-select');
 
             if (!taskInput || !prioritySelect || !dueDateInput) {
                 console.error('Edit form elements missing.');
@@ -833,7 +872,8 @@ class TodoApp {
                 ...task,
                 text: taskInput.value,
                 priority: prioritySelect.value,
-                dueDate: rawDueDate
+                dueDate: rawDueDate,
+                category: categorySelect ? categorySelect.value : task.category
             });
 
             const dueDateProvided = typeof rawDueDate === 'string' && rawDueDate.trim().length > 0;
@@ -874,9 +914,7 @@ class TodoApp {
             task.text = sanitizedTask.text;
             task.priority = sanitizedTask.priority;
             task.dueDate = sanitizedTask.dueDate;
-            if (sanitizedTask.category) {
-                task.category = sanitizedTask.category;
-            }
+            task.category = sanitizedTask.category || 'general';
             task.updatedAt = new Date().toISOString();
 
             this.saveTasksToStorage();
@@ -932,6 +970,14 @@ class TodoApp {
         // Filter by priority
         if (this.currentFilter !== 'all') {
             filteredTasks = filteredTasks.filter(task => task.priority === this.currentFilter);
+        }
+
+        // Filter by category
+        if (this.currentCategoryFilter !== 'all') {
+            filteredTasks = filteredTasks.filter(task => {
+                const normalizedCategory = (this.sanitizePlainText(task.category || 'general') || 'general').toLowerCase();
+                return normalizedCategory === this.currentCategoryFilter;
+            });
         }
 
         // Sort tasks
@@ -1095,6 +1141,10 @@ class TodoApp {
         else if (isDueSoon) taskClasses += ' due-soon';
 
         const priorityClass = `priority-${task.priority}`;
+        const rawCategory = this.sanitizePlainText(task.category || 'general') || 'general';
+        const normalizedCategorySlug = rawCategory.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'general';
+        const categoryClass = `category-${normalizedCategorySlug}`;
+        const categoryLabel = rawCategory.split(' ').filter(Boolean).map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ') || 'General';
         const dueDateDisplay = dueDate ? 
             `<div class="due-date ${isOverdue ? 'overdue' : isDueSoon ? 'due-soon' : ''}">
                 <i class="fas fa-calendar-alt"></i>
@@ -1113,6 +1163,7 @@ class TodoApp {
                             <p class="task-text text-gray-800 font-medium">${this.escapeHtml(task.text)}</p>
                             <div class="flex items-center gap-2 ml-4">
                                 <span class="priority-badge ${priorityClass}">${task.priority}</span>
+                                <span class="category-badge ${categoryClass}">${this.escapeHtml(categoryLabel)}</span>
                             </div>
                         </div>
                         
@@ -1347,7 +1398,16 @@ class TodoApp {
         try {
             const stored = localStorage.getItem('todoAppTasks');
             if (stored) {
-                this.tasks = JSON.parse(stored);
+                const parsedTasks = JSON.parse(stored);
+                if (Array.isArray(parsedTasks)) {
+                    this.tasks = parsedTasks.map(task => {
+                        const existingCategory = task && typeof task.category === 'string' ? task.category : 'general';
+                        return {
+                            ...task,
+                            category: this.sanitizePlainText(existingCategory) || 'general'
+                        };
+                    });
+                }
             }
         } catch (error) {
             console.error('Error loading tasks from localStorage:', error);
@@ -1517,9 +1577,12 @@ class TodoApp {
             const existingDate = normalizeDate(existingTask.dueDate);
             const newDate = normalizeDate(newTaskData.dueDate);
             const dateMatch = existingDate === newDate;
+
+            const normalizeCategory = (category) => (this.sanitizePlainText(category || 'general') || 'general').toLowerCase();
+            const categoryMatch = normalizeCategory(existingTask.category) === normalizeCategory(newTaskData.category);
             
             // Task is duplicate only if ALL properties match
-            return textMatch && priorityMatch && dateMatch;
+            return textMatch && priorityMatch && dateMatch && categoryMatch;
         });
     }
     
@@ -1617,12 +1680,273 @@ class TodoApp {
         };
     }
 
-    // Kimi AI Integration via Direct API
+    // Update a task's due date using natural language phrases
+    updateTaskDueDate(userMessage) {
+        const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+        return this.runTaskMutation(() => {
+            const originalMessage = (userMessage || '').toString();
+            const lowerMessage = originalMessage.toLowerCase();
+
+            const tokens = lowerMessage.split(/\s+/).filter(Boolean);
+            let matchedPhrase = null;
+            let normalizedDate = null;
+
+            for (let length = Math.min(5, tokens.length); length >= 1 && !normalizedDate; length--) {
+                for (let start = 0; start <= tokens.length - length; start++) {
+                    const candidate = tokens.slice(start, start + length).join(' ');
+                    const parsed = this.parseDatePhrase(candidate);
+                    if (parsed) {
+                        matchedPhrase = candidate;
+                        normalizedDate = parsed;
+                        break;
+                    }
+                }
+            }
+
+            if (!normalizedDate) {
+                return {
+                    success: false,
+                    message: "I couldn't understand the new due date. Try using phrases like 'tomorrow', 'next Friday', or a specific date like 2025-01-15."
+                };
+            }
+
+            const escapedPhrase = escapeRegExp(matchedPhrase);
+            const updatePattern = new RegExp(`(?:change|set|update|move|adjust)\\s+(?:the\\s+)?(?:due\\s+date|deadline)(?:\\s+(?:of|for))?\\s+(?<task>.+?)\\s+(?:to|for|by|on)\\s+${escapedPhrase}(?:\\s+deadline|\\s+due\s+date)?\\s*[.!?]?`, 'i');
+            const match = originalMessage.match(updatePattern);
+
+            let taskName = match?.groups?.task?.trim();
+            if (!taskName) {
+                let rough = lowerMessage.replace(matchedPhrase, '').replace(/\b(to|for|by|on)\b\s*$/i, '');
+                rough = rough.replace(/(?:change|set|update|move|adjust)\s+(?:the\s+)?(?:due\s+date|deadline)(?:\s+(?:of|for))?/i, '');
+                taskName = rough.trim();
+            }
+
+            if (!taskName) {
+                return {
+                    success: false,
+                    message: "I couldn't figure out which task to update. Please mention the task name clearly."
+                };
+            }
+
+            const normalizedTaskName = taskName.toLowerCase();
+            const candidates = [];
+
+            this.tasks.forEach(task => {
+                const taskText = task.text.toLowerCase();
+                if (taskText === normalizedTaskName) {
+                    candidates.push({ task, score: 100 });
+                    return;
+                }
+
+                if (taskText.includes(normalizedTaskName) || normalizedTaskName.includes(taskText)) {
+                    candidates.push({ task, score: Math.min(taskText.length, normalizedTaskName.length) });
+                    return;
+                }
+
+                const taskWords = taskText.split(/\s+/).filter(Boolean);
+                const targetWords = normalizedTaskName.split(/\s+/).filter(Boolean);
+                const matches = targetWords.filter(word => taskWords.includes(word));
+                if (matches.length > 0) {
+                    candidates.push({ task, score: matches.length });
+                }
+            });
+
+            if (candidates.length === 0) {
+                return {
+                    success: false,
+                    message: `I couldn't find a task that matches "${taskName}". Try using the exact task name.`
+                };
+            }
+
+            candidates.sort((a, b) => b.score - a.score);
+            if (candidates.length > 1 && candidates[0].score === candidates[1].score) {
+                const suggestions = candidates.slice(0, 3).map(c => `• ${c.task.text}`).join('\n');
+                return {
+                    success: false,
+                    message: `I found multiple tasks that could match:
+${suggestions}
+Please be more specific or include the task ID.`,
+                    multipleMatches: true
+                };
+            }
+
+            const taskToUpdate = candidates[0].task;
+            taskToUpdate.dueDate = normalizedDate;
+            taskToUpdate.updatedAt = new Date().toISOString();
+            this.saveTasksToStorage();
+            this.debouncedRender();
+
+            const friendlyDate = this.formatDate(new Date(normalizedDate));
+            return {
+                success: true,
+                task: taskToUpdate,
+                message: `📅 Updated the due date for "${taskToUpdate.text}" to ${friendlyDate}.`
+            };
+        }, {
+            silent: true,
+            onLocked: () => ({
+                success: false,
+                message: 'Another task update is currently in progress. Please try again shortly.'
+            })
+        });
+    }
+
+    // Update a task's priority using natural language phrases
+    updateTaskPriority(userMessage) {
+        const escapeRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+        return this.runTaskMutation(() => {
+            const originalMessage = (userMessage || '').toString();
+            const lowerMessage = originalMessage.toLowerCase();
+
+            const tokens = lowerMessage.split(/\s+/).filter(Boolean);
+            let matchedPriorityPhrase = null;
+            let normalizedPriority = null;
+
+            for (let length = Math.min(3, tokens.length); length >= 1 && !normalizedPriority; length--) {
+                for (let start = 0; start <= tokens.length - length; start++) {
+                    const candidate = tokens.slice(start, start + length).join(' ');
+                    const parsed = this.parsePriorityWord(candidate);
+                    if (parsed) {
+                        matchedPriorityPhrase = candidate;
+                        normalizedPriority = parsed;
+                        break;
+                    }
+                }
+            }
+
+            if (!normalizedPriority) {
+                return {
+                    success: false,
+                    message: "I couldn't understand the new priority. Try using words like high, urgent, normal, or low."
+                };
+            }
+
+            const escapedPhrase = escapeRegExp(matchedPriorityPhrase);
+            const updatePattern = new RegExp(`(?:set|change|update|adjust|make)\\s+(?:the\\s+)?priority(?:\\s+(?:of|for|on))?\\s+(?<task>.+?)\\s+(?:to|as|be|is|become)\\s+${escapedPhrase}(?:\\s+priority)?\\s*[.!?]?`, 'i');
+            const match = originalMessage.match(updatePattern);
+
+            let taskName = match?.groups?.task?.trim();
+            if (!taskName) {
+                let rough = lowerMessage.replace(matchedPriorityPhrase, '').replace(/\b(high|medium|low|urgent|critical|important|asap|normal|regular|standard|later|someday|eventually)\b\s*priority?/g, '');
+                rough = rough.replace(/(?:set|change|update|adjust|make)\s+(?:the\s+)?priority(?:\s+(?:of|for|on))?/i, '');
+                rough = rough.replace(/\bto\b\s*$/i, '').trim();
+                taskName = rough;
+            }
+
+            if (!taskName) {
+                return {
+                    success: false,
+                    message: "I couldn't figure out which task to update. Please mention the task name clearly."
+                };
+            }
+
+            const normalizedTaskName = taskName.toLowerCase();
+            const candidates = [];
+
+            this.tasks.forEach(task => {
+                const taskText = task.text.toLowerCase();
+                if (taskText === normalizedTaskName) {
+                    candidates.push({ task, score: 100 });
+                    return;
+                }
+
+                if (taskText.includes(normalizedTaskName) || normalizedTaskName.includes(taskText)) {
+                    candidates.push({ task, score: Math.min(taskText.length, normalizedTaskName.length) });
+                    return;
+                }
+
+                const taskWords = taskText.split(/\s+/).filter(Boolean);
+                const targetWords = normalizedTaskName.split(/\s+/).filter(Boolean);
+                const matches = targetWords.filter(word => taskWords.includes(word));
+                if (matches.length > 0) {
+                    candidates.push({ task, score: matches.length });
+                }
+            });
+
+            if (candidates.length === 0) {
+                return {
+                    success: false,
+                    message: `I couldn't find a task that matches "${taskName}". Try using the exact task name.`
+                };
+            }
+
+            candidates.sort((a, b) => b.score - a.score);
+            if (candidates.length > 1 && candidates[0].score === candidates[1].score) {
+                const suggestions = candidates.slice(0, 3).map(c => `• ${c.task.text}`).join('\n');
+                return {
+                    success: false,
+                    message: `I found multiple tasks that could match:
+${suggestions}
+Please be more specific or include the task ID.`,
+                    multipleMatches: true
+                };
+            }
+
+            const taskToUpdate = candidates[0].task;
+            taskToUpdate.priority = normalizedPriority;
+            taskToUpdate.updatedAt = new Date().toISOString();
+            this.saveTasksToStorage();
+            this.debouncedRender();
+
+            const priorityResponse = normalizedPriority === 'high'
+                ? '🔥 high priority'
+                : normalizedPriority === 'low'
+                    ? '🕒 low priority'
+                    : '✨ medium priority';
+
+            return {
+                success: true,
+                task: taskToUpdate,
+                message: `Updated the priority for "${taskToUpdate.text}" to ${priorityResponse}.`
+            };
+        }, {
+            silent: true,
+            onLocked: () => ({
+                success: false,
+                message: 'Another task update is currently in progress. Please try again shortly.'
+            })
+        });
+    }
+
+    getAIEndpoint() {
+        return this.aiEndpoint || 'https://openrouter.ai/api/v1/chat/completions';
+    }
+
+    getAIModel() {
+        if (!this.aiModel) {
+            this.aiModel = 'moonshot/kimi-k2';
+        }
+        return this.aiModel;
+    }
+
+    buildAIHeaders() {
+        const headers = {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${this.apiKey || ''}`
+        };
+
+        const referer = this.aiReferer || (typeof window !== 'undefined' && window.location ? window.location.origin : '');
+        if (referer) {
+            headers['HTTP-Referer'] = referer;
+        }
+
+        if (this.aiTitle) {
+            headers['X-Title'] = this.aiTitle;
+        }
+
+        return headers;
+    }
+
+    // Kimi AI Integration via OpenRouter API
     async initializeAI() {
         try {
+            this.aiEndpoint = this.getAIEndpoint();
+            this.aiModel = this.getAIModel();
             // Enable AI since we have the API key
             this.aiEnabled = true;
-            console.log('Kimi AI initialized with direct API access');
+            console.log('Kimi AI initialized via OpenRouter');
 
             // Test the connection
             try {
@@ -1639,14 +1963,11 @@ class TodoApp {
 
     async testKimiConnection() {
         // Quick test to verify API key works
-        const response = await fetch('https://api.moonshot.cn/v1/chat/completions', {
+        const response = await fetch(this.getAIEndpoint(), {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${this.apiKey}`
-            },
+            headers: this.buildAIHeaders(),
             body: JSON.stringify({
-                model: this.aiModel,
+                model: this.getAIModel(),
                 messages: [{ role: 'user', content: 'Hello' }],
                 max_tokens: 10
             })
@@ -1700,15 +2021,12 @@ If it's just conversation, only provide a natural response.`;
             // Add current user message
             messages.push({ role: 'user', content: userMessage });
 
-            // Make direct API call to MoonshotAI
-            const response = await fetch('https://api.moonshot.cn/v1/chat/completions', {
+            // Make direct API call via OpenRouter
+            const response = await fetch(this.getAIEndpoint(), {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${this.apiKey}`
-                },
+                headers: this.buildAIHeaders(),
                 body: JSON.stringify({
-                    model: this.aiModel,
+                    model: this.getAIModel(),
                     messages: messages,
                     temperature: 0.7,
                     max_tokens: 1000
@@ -1891,14 +2209,11 @@ Response: [
 Only return valid JSON array. If no tasks found, return empty array [].`;
 
         try {
-            const response = await fetch('https://api.moonshot.cn/v1/chat/completions', {
+            const response = await fetch(this.getAIEndpoint(), {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${this.apiKey}`
-                },
+                headers: this.buildAIHeaders(),
                 body: JSON.stringify({
-                    model: this.aiModel,
+                    model: this.getAIModel(),
                     messages: [
                         { role: 'system', content: systemPrompt },
                         { role: 'user', content: message }
@@ -2086,14 +2401,11 @@ Return only a JSON array of strings with task suggestions. Keep suggestions conc
 Example: ["Review weekly goals", "Plan weekend activities", "Check email"]`;
 
         try {
-            const response = await fetch('https://api.moonshot.cn/v1/chat/completions', {
+            const response = await fetch(this.getAIEndpoint(), {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${this.apiKey}`
-                },
+                headers: this.buildAIHeaders(),
                 body: JSON.stringify({
-                    model: this.aiModel,
+                    model: this.getAIModel(),
                     messages: [
                         { role: 'system', content: systemPrompt },
                         { role: 'user', content: 'What tasks should I consider adding based on my patterns?' }
@@ -2978,90 +3290,172 @@ Example: ["Review weekly goals", "Plan weekend activities", "Check email"]`;
     }
 
     async processLocalAI(userMessage) {
-        // Original local AI logic as fallback
+        // Original local AI logic as fallback with enhanced understanding
         const lowercaseMessage = userMessage.toLowerCase();
         let response = '';
         let actionTaken = false;
+        let handled = false;
 
-        // Enhanced Task Creation with batch processing (including conversational patterns)
-        if (this.containsAny(lowercaseMessage, [...this.nlpPatterns.taskCreation.verbs, 'i want to', 'i need to', 'i have to', 'can you add', 'could you add', 'please add'])) {
-            const taskResults = await this.enhancedParseTaskFromMessage(userMessage);
-            if (taskResults.length > 0) {
-                // Process tasks with unified validation and creation
-                const newTasks = [];
-                taskResults.forEach(taskResult => {
-                    // Auto-suggest due date if not provided
-                    if (!taskResult.dueDate) {
-                        const suggestedDate = this.suggestDueDate(taskResult.text);
-                        if (suggestedDate) {
-                            taskResult.dueDate = suggestedDate;
+        const addIntentPhrases = [...this.nlpPatterns.taskCreation.verbs, 'i want to', 'i need to', 'i have to', 'can you add', 'could you add', 'please add'];
+        const dueDateChangeVerbs = ['change', 'set', 'update', 'move', 'reschedule', 'adjust'];
+        const priorityChangeVerbs = ['set', 'change', 'update', 'adjust', 'make'];
+
+        const wantsDueDateChange = this.containsAny(lowercaseMessage, ['due date', 'deadline']) && this.containsAny(lowercaseMessage, dueDateChangeVerbs);
+        if (wantsDueDateChange) {
+            const result = this.updateTaskDueDate(userMessage);
+            if (result && result.success) {
+                response = result.message;
+                actionTaken = true;
+            } else if (result && result.message) {
+                response = result.message;
+            } else {
+                response = "I couldn't update that due date. Could you include the task name and the new date?";
+            }
+            handled = true;
+        }
+
+        const wantsPriorityChange = !handled && lowercaseMessage.includes('priority') && this.containsAny(lowercaseMessage, priorityChangeVerbs) && !this.containsAny(lowercaseMessage, ['add ', 'add a', 'add the', 'create', 'new task']);
+        if (!handled && wantsPriorityChange) {
+            const result = this.updateTaskPriority(userMessage);
+            if (result && result.success) {
+                response = result.message;
+                actionTaken = true;
+            } else if (result && result.message) {
+                response = result.message;
+            } else {
+                response = "I couldn't update that priority. Could you share the task name and the new priority?";
+            }
+            handled = true;
+        }
+
+        if (!handled && this.containsAny(lowercaseMessage, ['search for', 'search', 'find', 'look for'])) {
+            const keywordMatch = userMessage.match(/(?:search|find|look for)\s+(?:tasks?\s+)?(?:for\s+)?(.+)/i);
+            const keyword = keywordMatch ? keywordMatch[1].trim().replace(/[.!?]$/, '') : null;
+            response = this.searchTasksByKeyword(keyword);
+            handled = true;
+        }
+
+        if (!handled && (lowercaseMessage.includes('without due date') || lowercaseMessage.includes('no due date') || lowercaseMessage.includes('no deadline'))) {
+            response = this.getTasksWithoutDueDate();
+            handled = true;
+        }
+
+        if (!handled && !this.containsAny(lowercaseMessage, addIntentPhrases) && this.containsAny(lowercaseMessage, ['this weekend', 'weekend'])) {
+            response = this.getTasksThisWeekend();
+            handled = true;
+        }
+
+        if (!handled && !this.containsAny(lowercaseMessage, addIntentPhrases) && this.containsAny(lowercaseMessage, ['next week'])) {
+            response = this.getTasksNextWeek();
+            handled = true;
+        }
+
+        if (!handled) {
+            // Enhanced Task Creation with batch processing (including conversational patterns)
+            if (this.containsAny(lowercaseMessage, addIntentPhrases)) {
+                const taskResults = await this.enhancedParseTaskFromMessage(userMessage);
+                if (taskResults.length > 0) {
+                    const newTasks = [];
+                    taskResults.forEach(taskResult => {
+                        if (!taskResult.dueDate) {
+                            const suggestedDate = this.suggestDueDate(taskResult.text);
+                            if (suggestedDate) {
+                                taskResult.dueDate = suggestedDate;
+                            }
+                        }
+
+                        const result = this.validateAndAddTask(taskResult, 'ai');
+                        if (result.success) {
+                            newTasks.push(result.task);
+                        }
+                    });
+
+                    response = this.formatTaskResponse(newTasks, 'added');
+                    if (newTasks.length > 0) {
+                        actionTaken = true;
+                    }
+                }
+                handled = true;
+            }
+            
+            // Task Query Patterns with extended coverage
+            else if (this.containsAny(lowercaseMessage, ['what', 'show', 'list', 'display', 'view', 'tell me', 'can you show', 'i want to see', 'let me see'])) {
+                if (this.containsAny(lowercaseMessage, ['today', 'due today'])) {
+                    response = this.getTasksForToday();
+                } else if (this.containsAny(lowercaseMessage, ['tomorrow', 'due tomorrow'])) {
+                    response = this.getTasksForTomorrow();
+                } else if (this.containsAny(lowercaseMessage, ['this weekend', 'weekend'])) {
+                    response = this.getTasksThisWeekend();
+                } else if (this.containsAny(lowercaseMessage, ['next week'])) {
+                    response = this.getTasksNextWeek();
+                } else if (this.containsAny(lowercaseMessage, ['this week', 'week', 'upcoming'])) {
+                    response = this.getTasksThisWeek();
+                } else if (this.containsAny(lowercaseMessage, ['without due date', 'no due date', 'no deadline'])) {
+                    response = this.getTasksWithoutDueDate();
+                } else if (this.containsAny(lowercaseMessage, ['overdue', 'late'])) {
+                    response = this.getOverdueTasks();
+                } else if (this.containsAny(lowercaseMessage, ['completed', 'done', 'finished'])) {
+                    response = this.getCompletedTasks();
+                } else if (this.containsAny(lowercaseMessage, ['high priority', 'important', 'urgent'])) {
+                    response = this.getHighPriorityTasks();
+                } else {
+                    const categoryKeys = Object.keys(this.nlpPatterns?.taskCreation?.taskCategories || {});
+                    let matchedCategory = null;
+                    for (const category of categoryKeys) {
+                        if (this.containsAny(lowercaseMessage, [
+                            `${category} task`,
+                            `${category} tasks`,
+                            `show ${category}`,
+                            `show ${category} tasks`,
+                            `view ${category} tasks`,
+                            `list ${category} tasks`
+                        ])) {
+                            matchedCategory = category;
+                            break;
                         }
                     }
 
-                    // Use unified validation and addition
-                    const result = this.validateAndAddTask(taskResult, 'ai');
-                    if (result.success) {
-                        newTasks.push(result.task);
+                    if (matchedCategory) {
+                        response = this.getTasksByCategory(matchedCategory);
+                    } else {
+                        response = this.getAllTasksSummary();
                     }
-                });
-
-                // Use unified response formatting
-                response = this.formatTaskResponse(newTasks, 'added');
-
-                if (newTasks.length > 0) {
-                    actionTaken = true;
                 }
+                handled = true;
+            }
+
+            // Task completion and other actions
+            else if (this.containsAny(lowercaseMessage, ['complete', 'done', 'finished', 'mark as complete', 'check off'])) {
+                const completionResult = this.markTaskComplete(userMessage);
+                if (completionResult.success) {
+                    response = `✅ Great job! I've marked "${completionResult.taskName}" as completed.`;
+                    actionTaken = true;
+                } else {
+                    response = completionResult.message;
+                }
+                handled = true;
+            }
+            else if (this.containsAny(lowercaseMessage, ['hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening'])) {
+                response = this.getIntelligentGreeting();
+                handled = true;
+            }
+            else if (this.containsAny(lowercaseMessage, ['kimi', 'ai', 'assistant'])) {
+                const responses = [
+                    "I'm Shani, your intelligent task assistant! What can I help you organize today?",
+                    "Hello! I'm here to make managing your tasks easier. What would you like to work on?",
+                    "Hi there! Ready to tackle some tasks together? Just tell me what you need!"
+                ];
+                response = responses[Math.floor(Math.random() * responses.length)];
+                handled = true;
             }
         }
-        
-        // Task Query Patterns
-        else if (this.containsAny(lowercaseMessage, ['what', 'show', 'list', 'display', 'view', 'tell me', 'can you show', 'i want to see', 'let me see'])) {
-            if (this.containsAny(lowercaseMessage, ['today', 'due today'])) {
-                response = this.getTasksForToday();
-            } else if (this.containsAny(lowercaseMessage, ['tomorrow', 'due tomorrow'])) {
-                response = this.getTasksForTomorrow();
-            } else if (this.containsAny(lowercaseMessage, ['this week', 'week', 'upcoming'])) {
-                response = this.getTasksThisWeek();
-            } else if (this.containsAny(lowercaseMessage, ['overdue', 'late'])) {
-                response = this.getOverdueTasks();
-            } else if (this.containsAny(lowercaseMessage, ['completed', 'done', 'finished'])) {
-                response = this.getCompletedTasks();
-            } else if (this.containsAny(lowercaseMessage, ['high priority', 'important', 'urgent'])) {
-                response = this.getHighPriorityTasks();
-            } else {
-                response = this.getAllTasksSummary();
-            }
-        }
-        
-        // Other patterns remain the same...
-        else if (this.containsAny(lowercaseMessage, ['complete', 'done', 'finished', 'mark as complete', 'check off'])) {
-            const completionResult = this.markTaskComplete(userMessage);
-            if (completionResult.success) {
-                response = `✅ Great job! I've marked "${completionResult.taskName}" as completed.`;
-                actionTaken = true;
-            } else {
-                response = completionResult.message;
-            }
-        }
-        else if (this.containsAny(lowercaseMessage, ['hello', 'hi', 'hey', 'good morning', 'good afternoon', 'good evening'])) {
-            response = this.getIntelligentGreeting();
-        }
-        else if (this.containsAny(lowercaseMessage, ['kimi', 'ai', 'assistant'])) {
-            const responses = [
-                "I'm Shani, your intelligent task assistant! What can I help you organize today?",
-                "Hello! I'm here to make managing your tasks easier. What would you like to work on?",
-                "Hi there! Ready to tackle some tasks together? Just tell me what you need!"
-            ];
-            response = responses[Math.floor(Math.random() * responses.length)];
-        }
-        else {
+
+        if (!handled) {
             response = "I'm here to help with your tasks! Try saying things like 'add a task', 'show my tasks', or 'what's due today?'";
         }
 
-        // Add AI response to chat
         this.addChatMessage('ai', response);
-        
-        // Update UI if action was taken
+
         if (actionTaken) {
             this.debouncedRender();
         }
@@ -3069,6 +3463,157 @@ Example: ["Review weekly goals", "Plan weekend activities", "Check email"]`;
 
     containsAny(text, keywords) {
         return keywords.some(keyword => text.includes(keyword));
+    }
+
+    // Convert natural language date phrases into an ISO date string (YYYY-MM-DD)
+    parseDatePhrase(datePhrase) {
+        if (!datePhrase || typeof datePhrase !== 'string') {
+            return null;
+        }
+
+        const phrase = datePhrase.trim().toLowerCase();
+        if (!phrase) {
+            return null;
+        }
+
+        const today = new Date();
+        const baseDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+        const addDays = (days) => {
+            const result = new Date(baseDate);
+            result.setDate(result.getDate() + days);
+            return result.toISOString().split('T')[0];
+        };
+
+        const simpleOffsets = {
+            'today': 0,
+            'tonight': 0,
+            'tomorrow': 1,
+            'tmr': 1,
+            'day after tomorrow': 2,
+            'in two days': 2,
+            'in 2 days': 2,
+            'in three days': 3,
+            'in 3 days': 3,
+            'in a week': 7,
+            'next week': 7,
+            'in one week': 7
+        };
+
+        if (simpleOffsets[phrase] !== undefined) {
+            return addDays(simpleOffsets[phrase]);
+        }
+
+        if (/^in\s+\d+\s+day/.test(phrase)) {
+            const days = parseInt(phrase.match(/\d+/)[0], 10);
+            if (!Number.isNaN(days)) {
+                return addDays(days);
+            }
+        }
+
+        if (/^in\s+\d+\s+week/.test(phrase)) {
+            const weeks = parseInt(phrase.match(/\d+/)[0], 10);
+            if (!Number.isNaN(weeks)) {
+                return addDays(weeks * 7);
+            }
+        }
+
+        const getWeekendDate = (offsetWeeks = 0) => {
+            const saturdayOffset = ((6 - baseDate.getDay()) + 7) % 7;
+            const saturday = new Date(baseDate);
+            saturday.setDate(saturday.getDate() + saturdayOffset + (offsetWeeks * 7));
+            return saturday.toISOString().split('T')[0];
+        };
+
+        if (phrase === 'this weekend' || phrase === 'weekend') {
+            return getWeekendDate(0);
+        }
+
+        if (phrase === 'next weekend') {
+            return getWeekendDate(1);
+        }
+
+        const weekdays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+        const weekdayRegex = /^(next|this|upcoming)?\s*(sunday|monday|tuesday|wednesday|thursday|friday|saturday)$/;
+        const weekdayMatch = phrase.match(weekdayRegex);
+        if (weekdayMatch) {
+            const modifier = weekdayMatch[1] || '';
+            const weekdayName = weekdayMatch[2];
+            const targetDay = weekdays.indexOf(weekdayName);
+            if (targetDay >= 0) {
+                let daysAhead = (targetDay - baseDate.getDay() + 7) % 7;
+                if (daysAhead === 0 || modifier === 'next') {
+                    daysAhead += 7;
+                }
+                return addDays(daysAhead);
+            }
+        }
+
+        const onWeekdayMatch = phrase.match(/^(on\s+)?(next|this|upcoming)?\s*(sunday|monday|tuesday|wednesday|thursday|friday|saturday)/);
+        if (onWeekdayMatch) {
+            const modifier = onWeekdayMatch[2] || '';
+            const weekdayName = onWeekdayMatch[3];
+            const targetDay = weekdays.indexOf(weekdayName);
+            if (targetDay >= 0) {
+                let daysAhead = (targetDay - baseDate.getDay() + 7) % 7;
+                if (modifier === 'next' || daysAhead === 0) {
+                    daysAhead += 7;
+                }
+                return addDays(daysAhead);
+            }
+        }
+
+        // Support explicit dates such as 2025-01-15 or 15/01/2025
+        const isoMatch = phrase.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+        if (isoMatch) {
+            return isoMatch[0];
+        }
+
+        const localeMatch = phrase.match(/\b(\d{1,2})[\/](\d{1,2})[\/](\d{4})\b/);
+        if (localeMatch) {
+            const [ , month, day, year ] = localeMatch;
+            const parsedDate = new Date(parseInt(year, 10), parseInt(month, 10) - 1, parseInt(day, 10));
+            if (!Number.isNaN(parsedDate.getTime())) {
+                return parsedDate.toISOString().split('T')[0];
+            }
+        }
+
+        return null;
+    }
+
+    // Map natural language priority words to canonical priority values
+    parsePriorityWord(word) {
+        if (!word || typeof word !== 'string') {
+            return null;
+        }
+
+        const normalized = word.trim().toLowerCase();
+        if (!normalized) {
+            return null;
+        }
+
+        const prioritySynonyms = {
+            high: ['high', 'urgent', 'critical', 'important', 'asap', 'top', 'highest', 'rush', 'immediate'],
+            medium: ['medium', 'normal', 'regular', 'standard', 'default', 'moderate', 'average'],
+            low: ['low', 'later', 'someday', 'eventually', 'whenever', 'optional', 'defer', 'minor']
+        };
+
+        const cleaned = normalized.replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
+        const candidates = new Set([
+            cleaned,
+            cleaned.replace(/\bpriority\b/g, '').trim(),
+            ...cleaned.split(' ')
+        ].filter(Boolean));
+
+        for (const candidate of candidates) {
+            for (const [priority, synonyms] of Object.entries(prioritySynonyms)) {
+                if (synonyms.includes(candidate)) {
+                    return priority;
+                }
+        return greeting;
+    }
+        }
+
+        return null;
     }
 
     parseTaskFromMessage(message) {
@@ -3113,6 +3658,122 @@ Example: ["Review weekly goals", "Plan weekend activities", "Check email"]`;
         if (text.length < 2) return null;
 
         return { text, priority, dueDate };
+    }
+
+    getTasksThisWeekend() {
+        const today = new Date();
+        const baseDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+        const day = baseDate.getDay();
+
+        const saturday = new Date(baseDate);
+        if (day === 6) {
+            // Already Saturday
+        } else if (day === 0) {
+            saturday.setDate(saturday.getDate() - 1);
+        } else {
+            saturday.setDate(saturday.getDate() + (6 - day));
+        }
+
+        const sunday = new Date(saturday);
+        sunday.setDate(saturday.getDate() + 1);
+
+        const weekendDates = new Set([
+            saturday.toISOString().split('T')[0],
+            sunday.toISOString().split('T')[0]
+        ]);
+
+        const weekendTasks = this.tasks.filter(task => task.dueDate && !task.completed && weekendDates.has(task.dueDate));
+
+        if (weekendTasks.length === 0) {
+            return '🛋️ You have no tasks scheduled for this weekend.';
+        }
+
+        return `🗓️ Weekend tasks (${weekendTasks.length}):\n\n${weekendTasks.map((task, index) => {
+            return `${index + 1}. ${task.text} — Due ${this.formatDate(new Date(task.dueDate))} (${task.priority} priority)`;
+        }).join('\n')}`;
+    }
+
+    getTasksNextWeek() {
+        const today = new Date();
+        const baseDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+        const day = baseDate.getDay();
+        let daysUntilNextMonday = (8 - day) % 7;
+        if (daysUntilNextMonday === 0) {
+            daysUntilNextMonday = 7;
+        }
+
+        const monday = new Date(baseDate);
+        monday.setDate(monday.getDate() + daysUntilNextMonday);
+
+        const sunday = new Date(monday);
+        sunday.setDate(monday.getDate() + 6);
+
+        const startISO = monday.toISOString().split('T')[0];
+        const endISO = sunday.toISOString().split('T')[0];
+
+        const nextWeekTasks = this.tasks.filter(task => {
+            if (!task.dueDate || task.completed) {
+                return false;
+            }
+            return task.dueDate >= startISO && task.dueDate <= endISO;
+        });
+
+        if (nextWeekTasks.length === 0) {
+            return '📅 You have no tasks scheduled for next week.';
+        }
+
+        return `📅 Tasks for next week (${nextWeekTasks.length}):\n\n${nextWeekTasks.map((task, index) => {
+            return `${index + 1}. ${task.text} — Due ${this.formatDate(new Date(task.dueDate))} (${task.priority} priority)`;
+        }).join('\n')}`;
+    }
+
+    getTasksWithoutDueDate() {
+        const undatedTasks = this.tasks.filter(task => !task.completed && !task.dueDate);
+
+        if (undatedTasks.length === 0) {
+            return '📝 Every pending task already has a due date!';
+        }
+
+        return `📝 Tasks without a due date (${undatedTasks.length}):\n\n${undatedTasks.map((task, index) => (
+            `${index + 1}. ${task.text} (${task.priority} priority)`
+        )).join('\n')}`;
+    }
+
+    getTasksByCategory(category) {
+        if (!category) {
+            return 'Please specify which category you’d like to see (e.g., work, personal, home).';
+        }
+
+        const normalizedCategory = category.toLowerCase();
+        const matchingTasks = this.tasks.filter(task => !task.completed && (task.category || '').toLowerCase() === normalizedCategory);
+
+        if (matchingTasks.length === 0) {
+            return `📂 I couldn't find any pending tasks in the "${category}" category.`;
+        }
+
+        return `📂 ${matchingTasks.length} ${matchingTasks.length === 1 ? 'task' : 'tasks'} in "${category}" category:\n\n${matchingTasks.map((task, index) => {
+            const dueText = task.dueDate ? ` — Due ${this.formatDate(new Date(task.dueDate))}` : '';
+            return `${index + 1}. ${task.text}${dueText} (${task.priority} priority)`;
+        }).join('\n')}`;
+    }
+
+    searchTasksByKeyword(keyword) {
+        if (!keyword) {
+            return 'Please tell me which keyword to search for.';
+        }
+
+        const normalizedKeyword = keyword.toLowerCase();
+        const matchingTasks = this.tasks.filter(task => task.text.toLowerCase().includes(normalizedKeyword));
+
+        if (matchingTasks.length === 0) {
+            return `🔍 No tasks contain "${keyword}" right now.`;
+        }
+
+        return `🔍 Tasks matching "${keyword}" (${matchingTasks.length}):\n\n${matchingTasks.map((task, index) => {
+            const dueText = task.dueDate ? ` — Due ${this.formatDate(new Date(task.dueDate))}` : '';
+            const statusText = task.completed ? '✅ Completed' : `${task.priority} priority`;
+            return `${index + 1}. ${task.text}${dueText} (${statusText})`;
+        }).join('\n')}`;
     }
 
     getTasksForToday() {

@@ -6,7 +6,7 @@ A browser-based task manager focused on accessibility, intelligent assistance, a
 - **Accessible UI** – Skip links, ARIA labels, live regions, keyboard navigation, and busy-state indicators ensure screen-reader friendliness.
 - **Virtualized Task List** – Automatically enables virtual scrolling for large task collections while falling back gracefully on browsers without required APIs.
 - **Smart Task Handling** – Natural-language parsing, duplicate detection, and validation for priorities and due dates.
-- **AI Chat Assistant** – Optional Kimi-powered assistant for conversational task management with local fallback logic.
+- **AI Chat Assistant** – Optional OpenRouter-powered Kimi K2 assistant for conversational task management with local fallback logic.
 - **Persistent Storage** – Tasks are saved to `localStorage`, with import/export helpers for backups.
 
 ## 🧭 Project Structure
@@ -38,6 +38,22 @@ A browser-based task manager focused on accessibility, intelligent assistance, a
      python -m http.server 8000
      ```
    Then visit `http://localhost:8000`.
+
+   ## 🔑 OpenRouter Setup
+   The hosted Kimi experience now routes through [OpenRouter](https://openrouter.ai/). To enable remote AI responses:
+
+   1. Create an OpenRouter account and generate an API key with access to the `moonshot/kimi-k2` model.
+   2. Expose the key to the browser **before** `app.js` loads. A quick way is to add the snippet below to `index.html` (replace the placeholder value):
+       ```html
+       <script>
+          window.OPENROUTER_API_KEY = "sk-or-v1-...";
+       </script>
+       <script src="app.js"></script>
+       ```
+       The app also falls back to a legacy `window.KIMI_API_KEY` variable if you already have that in place.
+   3. Optional: edit `app.js` if you want to override the automatically derived `HTTP-Referer` or `X-Title` headers that OpenRouter recommends for rate-limit protection.
+
+   If no key is provided, Shani gracefully falls back to the local NLP routines you enhanced earlier.
 
 ## 🧪 Testing
 Automated tests exercise empty states, invalid date handling, and the concurrency guard around task mutations.

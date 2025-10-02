@@ -122,6 +122,47 @@ textarea[aria-invalid="true"] {
     color: #065f46;
 }
 
+/* Category badge styles */
+.category-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.25rem 0.75rem;
+    border-radius: 9999px;
+    -webkit-border-radius: 9999px;
+    -moz-border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    background-color: #e2e8f0;
+    color: #1f2937;
+}
+
+.category-general {
+    background-color: #e2e8f0;
+    color: #1f2937;
+}
+
+.category-work {
+    background-color: #ede9fe;
+    color: #5b21b6;
+}
+
+.category-personal {
+    background-color: #fee2f2;
+    color: #9d174d;
+}
+
+.category-shopping {
+    background-color: #fef9c3;
+    color: #854d0e;
+}
+
+.category-health {
+    background-color: #dcfce7;
+    color: #166534;
+}
+
 /* Task item styles */
 .task-item {
     background: white;
