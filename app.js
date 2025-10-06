@@ -39,7 +39,7 @@ class TodoApp {
 
         this.aiEnabled = false;
         const browserWindow = typeof window !== 'undefined' ? window : null;
-    this.apiKey = browserWindow && (browserWindow.OPENROUTER_API_KEY || browserWindow.KIMI_API_KEY) || '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';
+    this.apiKey = browserWindow && (browserWindow.OPENROUTER_API_KEY || browserWindow.KIMI_API_KEY) || API_KEY;
     this.aiModel = 'mistralai/mistral-7b-instruct:free';
         this.aiEndpoint = 'https://openrouter.ai/api/v1/chat/completions';
         this.aiReferer = browserWindow && browserWindow.location ? browserWindow.location.origin : '';
