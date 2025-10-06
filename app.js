@@ -39,8 +39,8 @@ class TodoApp {
 
         this.aiEnabled = false;
         const browserWindow = typeof window !== 'undefined' ? window : null;
-        this.apiKey = browserWindow && (browserWindow.OPENROUTER_API_KEY || browserWindow.KIMI_API_KEY) || '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';
-        this.aiModel = 'moonshot/kimi-k2';
+    this.apiKey = browserWindow && (browserWindow.OPENROUTER_API_KEY || browserWindow.KIMI_API_KEY) || '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';
+    this.aiModel = 'mistralai/mistral-7b-instruct:free';
         this.aiEndpoint = 'https://openrouter.ai/api/v1/chat/completions';
         this.aiReferer = browserWindow && browserWindow.location ? browserWindow.location.origin : '';
         this.aiTitle = 'My Smart To-Do List';
@@ -50,6 +50,7 @@ class TodoApp {
 
     init() {
         this.nlpPatterns = this.initializeNLPPatterns();
+        this.initializeTheme();
         this.loadTasksFromStorage();
         this.detectBrowserFeatures();
         this.applyBrowserFeatureFallbacks();
@@ -808,8 +809,28 @@ class TodoApp {
                 return;
             }
 
+            const wasCompleted = task.completed;
             task.completed = !task.completed;
             task.completedAt = task.completed ? new Date().toISOString() : null;
+
+            // Handle recurring task if completed
+            if (task.completed && !wasCompleted && task.recurring) {
+                const nextTask = this.handleRecurringTask(task);
+                if (nextTask) {
+                    // Check if next instance doesn't already exist
+                    const existsAlready = this.tasks.some(t => 
+                        t.text === nextTask.text && 
+                        t.dueDate === nextTask.dueDate && 
+                        !t.completed &&
+                        t.id !== task.id
+                    );
+                    
+                    if (!existsAlready) {
+                        this.tasks.push(nextTask);
+                        this.announceToScreenReader(`Recurring task completed. Next instance scheduled for ${this.formatDate(new Date(nextTask.dueDate))}.`);
+                    }
+                }
+            }
 
             this.saveTasksToStorage();
             this.renderTasks();
@@ -939,6 +960,178 @@ class TodoApp {
         modal.classList.add('hidden');
         modal.classList.remove('modal-enter');
         this.currentEditId = null;
+    }
+
+    // Subtask Management Methods
+    addSubtask(taskId) {
+        const subtaskText = prompt('Enter subtask description:');
+        if (!subtaskText || !subtaskText.trim()) {
+            return;
+        }
+
+        return this.runTaskMutation(() => {
+            const task = this.tasks.find(t => t.id === taskId);
+            if (!task) {
+                this.announceToScreenReader('Parent task not found.');
+                return;
+            }
+
+            if (!task.subtasks) {
+                task.subtasks = [];
+            }
+
+            const subtask = {
+                id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+                text: subtaskText.trim(),
+                completed: false,
+                createdAt: new Date().toISOString()
+            };
+
+            task.subtasks.push(subtask);
+            task.updatedAt = new Date().toISOString();
+
+            this.saveTasksToStorage();
+            this.renderTasks();
+            this.announceToScreenReader(`Subtask "${subtask.text}" added.`);
+        }, {
+            message: 'Another task update is in progress. Please wait.'
+        });
+    }
+
+    toggleSubtask(taskId, subtaskIndex) {
+        return this.runTaskMutation(() => {
+            const task = this.tasks.find(t => t.id === taskId);
+            if (!task || !task.subtasks || !task.subtasks[subtaskIndex]) {
+                this.announceToScreenReader('Subtask not found.');
+                return;
+            }
+
+            const subtask = task.subtasks[subtaskIndex];
+            subtask.completed = !subtask.completed;
+            subtask.completedAt = subtask.completed ? new Date().toISOString() : null;
+            task.updatedAt = new Date().toISOString();
+
+            this.saveTasksToStorage();
+            this.renderTasks();
+            
+            const status = subtask.completed ? 'completed' : 'marked as pending';
+            this.announceToScreenReader(`Subtask "${subtask.text}" ${status}.`);
+        }, {
+            message: 'Another task update is in progress. Please wait.'
+        });
+    }
+
+    deleteSubtask(taskId, subtaskIndex) {
+        if (!confirm('Are you sure you want to delete this subtask?')) {
+            return;
+        }
+
+        return this.runTaskMutation(() => {
+            const task = this.tasks.find(t => t.id === taskId);
+            if (!task || !task.subtasks || !task.subtasks[subtaskIndex]) {
+                this.announceToScreenReader('Subtask not found.');
+                return;
+            }
+
+            const deletedSubtask = task.subtasks.splice(subtaskIndex, 1)[0];
+            task.updatedAt = new Date().toISOString();
+
+            this.saveTasksToStorage();
+            this.renderTasks();
+            this.announceToScreenReader(`Subtask "${deletedSubtask.text}" deleted.`);
+        }, {
+            message: 'Another task update is in progress. Please wait.'
+        });
+    }
+
+    // Recurring Tasks Management
+    handleRecurringTask(completedTask) {
+        if (!completedTask.recurring || !completedTask.completed) {
+            return null;
+        }
+
+        const nextDueDate = this.calculateNextRecurringDate(completedTask.dueDate, completedTask.recurring);
+        if (!nextDueDate) {
+            return null;
+        }
+
+        // Create the next instance
+        const nextTask = {
+            ...completedTask,
+            id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+            dueDate: nextDueDate.toISOString().split('T')[0],
+            completed: false,
+            completedAt: null,
+            createdAt: new Date().toISOString(),
+            subtasks: completedTask.subtasks ? completedTask.subtasks.map(st => ({
+                ...st,
+                completed: false,
+                completedAt: null
+            })) : []
+        };
+
+        return nextTask;
+    }
+
+    calculateNextRecurringDate(currentDueDate, recurring) {
+        if (!currentDueDate || !recurring) {
+            return null;
+        }
+
+        const current = new Date(currentDueDate);
+        const next = new Date(current);
+
+        switch (recurring.type) {
+            case 'daily':
+                next.setDate(current.getDate() + (recurring.interval || 1));
+                break;
+            case 'weekly':
+                if (recurring.dayOfWeek !== undefined) {
+                    // For specific day of week (e.g., every Monday)
+                    next.setDate(current.getDate() + 7);
+                } else {
+                    // Generic weekly
+                    next.setDate(current.getDate() + (7 * (recurring.interval || 1)));
+                }
+                break;
+            case 'monthly':
+                next.setMonth(current.getMonth() + (recurring.interval || 1));
+                break;
+            default:
+                return null;
+        }
+
+        return next;
+    }
+
+    processRecurringTasks() {
+        const newRecurringTasks = [];
+        
+        this.tasks.forEach(task => {
+            if (task.recurring && task.completed) {
+                const nextTask = this.handleRecurringTask(task);
+                if (nextTask) {
+                    // Check if next instance already exists
+                    const existsAlready = this.tasks.some(t => 
+                        t.text === nextTask.text && 
+                        t.dueDate === nextTask.dueDate && 
+                        !t.completed
+                    );
+                    
+                    if (!existsAlready) {
+                        newRecurringTasks.push(nextTask);
+                    }
+                }
+            }
+        });
+
+        if (newRecurringTasks.length > 0) {
+            this.tasks.push(...newRecurringTasks);
+            this.saveTasksToStorage();
+            return newRecurringTasks;
+        }
+
+        return [];
     }
 
     updateViewButtons() {
@@ -1168,15 +1361,21 @@ class TodoApp {
                             </div>
                         </div>
                         
+                        ${this.generateSubtasksHTML(task)}
+                        
                         <div class="flex items-center justify-between">
                             <div class="text-sm text-gray-500">
                                 ${dueDateDisplay}
                                 <div class="text-xs mt-1">
                                     Created: ${this.formatDate(new Date(task.createdAt))}
+                                    ${task.recurring ? `<span class="ml-2 text-blue-600"><i class="fas fa-repeat"></i> ${this.formatRecurring(task.recurring)}</span>` : ''}
                                 </div>
                             </div>
                             
                             <div class="flex items-center gap-2 task-actions">
+                                <button class="btn-action btn-subtask" onclick="todoApp.addSubtask('${task.id}')" title="Add subtask">
+                                    <i class="fas fa-plus"></i>
+                                </button>
                                 <button class="btn-action btn-edit" onclick="todoApp.editTask('${task.id}')" title="Edit task">
                                     <i class="fas fa-edit"></i>
                                 </button>
@@ -1189,6 +1388,53 @@ class TodoApp {
                 </div>
             </div>
         `;
+    }
+
+    generateSubtasksHTML(task) {
+        if (!task.subtasks || task.subtasks.length === 0) {
+            return '';
+        }
+
+        const subtasksHTML = task.subtasks.map((subtask, index) => {
+            return `
+                <div class="subtask-item flex items-center gap-2 ml-8 mt-2">
+                    <div class="subtask-checkbox ${subtask.completed ? 'checked' : ''}" 
+                         onclick="todoApp.toggleSubtask('${task.id}', ${index})">
+                    </div>
+                    <span class="subtask-text ${subtask.completed ? 'line-through text-gray-500' : 'text-gray-700'}">${this.escapeHtml(subtask.text)}</span>
+                    <button class="btn-action btn-delete-subtask ml-auto" 
+                            onclick="todoApp.deleteSubtask('${task.id}', ${index})" 
+                            title="Delete subtask">
+                        <i class="fas fa-times text-xs"></i>
+                    </button>
+                </div>
+            `;
+        }).join('');
+
+        return `
+            <div class="subtasks-container mt-3">
+                ${subtasksHTML}
+            </div>
+        `;
+    }
+
+    formatRecurring(recurring) {
+        if (!recurring) return '';
+        
+        switch (recurring.type) {
+            case 'daily':
+                return 'Daily';
+            case 'weekly':
+                if (recurring.dayOfWeek !== undefined) {
+                    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                    return `Every ${days[recurring.dayOfWeek]}`;
+                }
+                return 'Weekly';
+            case 'monthly':
+                return 'Monthly';
+            default:
+                return 'Recurring';
+        }
     }
 
     bindTaskEvents() {
@@ -1266,6 +1512,27 @@ class TodoApp {
         return raw.replace(/\s+/g, ' ').trim();
     }
 
+    normalizeTextForMatching(value) {
+        const plain = this.sanitizePlainText(value || '');
+        const lowercase = plain.toLowerCase();
+        const withoutPunctuation = lowercase.replace(/[^a-z0-9\s]/g, ' ');
+        const stopwords = ['the', 'a', 'an', 'please', 'task', 'event', 'meeting', 'with', 'for', 'at', 'on', 'to', 'of'];
+        const tokens = withoutPunctuation
+            .split(/\s+/)
+            .map(token => token.trim())
+            .filter(token => token.length > 0)
+            .map(token => stopwords.includes(token) ? '' : token)
+            .filter(Boolean);
+
+        const uniqueTokens = Array.from(new Set(tokens));
+
+        return {
+            normalized: uniqueTokens.join(' '),
+            tokens: uniqueTokens,
+            hasTokens: uniqueTokens.length > 0
+        };
+    }
+
     sanitizeUserMessage(value) {
         return this.sanitizePlainText(value, { preserveNewlines: false });
     }
@@ -1278,6 +1545,137 @@ class TodoApp {
         const allowed = ['low', 'medium', 'high'];
         const normalized = typeof value === 'string' ? value.toLowerCase() : '';
         return allowed.includes(normalized) ? normalized : 'medium';
+    }
+
+    parseNaturalLanguageDate(value) {
+        if (typeof value !== 'string') return null;
+
+        const text = value.toLowerCase().trim();
+        if (!text) return null;
+
+        const normalizeBaseDate = (date) => {
+            const normalized = new Date(date.getTime());
+            normalized.setHours(12, 0, 0, 0);
+            return normalized;
+        };
+
+        const today = normalizeBaseDate(new Date());
+
+        if (/\btoday\b/.test(text)) {
+            return today;
+        }
+
+        if (/\bday\s+after\s+tomorrow\b/.test(text)) {
+            const date = new Date(today.getTime());
+            date.setDate(date.getDate() + 2);
+            return date;
+        }
+
+        if (/\btomorrow\b/.test(text)) {
+            const date = new Date(today.getTime());
+            date.setDate(date.getDate() + 1);
+            return date;
+        }
+
+        const relativeMatch = text.match(/\bin\s+(\d+)\s+(day|days|week|weeks)\b/);
+        if (relativeMatch) {
+            const amount = parseInt(relativeMatch[1], 10);
+            if (!Number.isNaN(amount)) {
+                const date = new Date(today.getTime());
+                const unit = relativeMatch[2];
+                const multiplier = unit.startsWith('week') ? 7 : 1;
+                date.setDate(date.getDate() + amount * multiplier);
+                return date;
+            }
+        }
+
+        const weekdayMatch = text.match(/\b(?:on\s+)?(this|next|upcoming|coming)?\s*(sunday|sun|monday|mon|tuesday|tue|tues|wednesday|wed|thursday|thu|thur|thurs|friday|fri|saturday|sat)\b/);
+        if (weekdayMatch) {
+            const qualifier = (weekdayMatch[1] || '').trim();
+            const weekdayKey = weekdayMatch[2];
+            const weekdayMap = {
+                sunday: 0, sun: 0,
+                monday: 1, mon: 1,
+                tuesday: 2, tue: 2, tues: 2,
+                wednesday: 3, wed: 3,
+                thursday: 4, thu: 4, thur: 4, thurs: 4,
+                friday: 5, fri: 5,
+                saturday: 6, sat: 6
+            };
+
+            const targetDay = weekdayMap[weekdayKey];
+            if (targetDay !== undefined) {
+                const forceNext = qualifier === 'next' || qualifier === 'upcoming' || qualifier === 'coming';
+                let candidate = this.getNextWeekday(targetDay, forceNext);
+                candidate = normalizeBaseDate(candidate);
+
+                if (qualifier === 'this' && candidate < today) {
+                    candidate.setDate(candidate.getDate() + 7);
+                }
+
+                return candidate;
+            }
+        }
+
+        const monthMap = {
+            january: 0, jan: 0,
+            february: 1, feb: 1,
+            march: 2, mar: 2,
+            april: 3, apr: 3,
+            may: 4,
+            june: 5, jun: 5,
+            july: 6, jul: 6,
+            august: 7, aug: 7,
+            september: 8, sept: 8, sep: 8,
+            october: 9, oct: 9,
+            november: 10, nov: 10,
+            december: 11, dec: 11
+        };
+
+        const monthPattern = /\b(?:on\s+)?(?:(sunday|sun|monday|mon|tuesday|tue|tues|wednesday|wed|thursday|thu|thur|thurs|friday|fri|saturday|sat)\s*,\s*)?(january|jan|february|feb|march|mar|april|apr|may|june|jun|july|jul|august|aug|september|sept|sep|october|oct|november|nov|december|dec)\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s*(\d{4}))?(?:\s+at\s+[0-9:apm\.\s]+)?\b/;
+        const monthMatch = text.match(monthPattern);
+        if (monthMatch) {
+            const [, weekdayQualifier, monthKey, dayRaw, yearRaw] = monthMatch;
+            const monthIndex = monthMap[monthKey];
+            const day = parseInt(dayRaw, 10);
+
+            if (monthIndex !== undefined && !Number.isNaN(day)) {
+                const currentYear = today.getFullYear();
+                let year = yearRaw ? parseInt(yearRaw, 10) : currentYear;
+
+                if (!yearRaw) {
+                    const tentative = new Date(currentYear, monthIndex, day);
+                    if (tentative < today) {
+                        year += 1;
+                    }
+                }
+
+                let candidate = new Date(year, monthIndex, day);
+                candidate = normalizeBaseDate(candidate);
+
+                if (weekdayQualifier) {
+                    const weekdayMapExtended = {
+                        sunday: 0, sun: 0,
+                        monday: 1, mon: 1,
+                        tuesday: 2, tue: 2, tues: 2,
+                        wednesday: 3, wed: 3,
+                        thursday: 4, thu: 4, thur: 4, thurs: 4,
+                        friday: 5, fri: 5,
+                        saturday: 6, sat: 6
+                    };
+
+                    const targetDay = weekdayMapExtended[weekdayQualifier];
+                    if (targetDay !== undefined && candidate.getDay() !== targetDay) {
+                        const offset = (targetDay - candidate.getDay() + 7) % 7;
+                        candidate.setDate(candidate.getDate() + offset);
+                    }
+                }
+
+                return candidate;
+            }
+        }
+
+        return null;
     }
 
     normalizeDueDate(value) {
@@ -1314,11 +1712,16 @@ class TodoApp {
 
                 dateObj = candidate;
             } else {
-                const parsed = new Date(trimmed);
-                if (isNaN(parsed.getTime())) {
-                    return null;
+                const naturalDate = this.parseNaturalLanguageDate(trimmed);
+                if (naturalDate) {
+                    dateObj = naturalDate;
+                } else {
+                    const parsed = new Date(trimmed);
+                    if (isNaN(parsed.getTime())) {
+                        return null;
+                    }
+                    dateObj = parsed;
                 }
-                dateObj = parsed;
             }
         }
 
@@ -1326,7 +1729,10 @@ class TodoApp {
             return null;
         }
 
-        return new Date(dateObj.getTime()).toISOString().split('T')[0];
+        const normalizedDate = new Date(dateObj.getTime());
+        normalizedDate.setHours(12, 0, 0, 0);
+
+        return normalizedDate.toISOString().split('T')[0];
     }
 
     sanitizeTaskData(taskData = {}) {
@@ -1503,7 +1909,12 @@ class TodoApp {
             category: sanitizedTask.category || 'general',
             completed: false,
             createdAt: new Date().toISOString(),
-            createdBy
+            createdBy,
+            // New fields for enhanced functionality
+            subtasks: sanitizedTask.subtasks || [],
+            recurring: sanitizedTask.recurring || null,
+            notes: sanitizedTask.notes || '',
+            completedAt: null
         };
     }
 
@@ -2140,12 +2551,56 @@ ${recentTasks || 'No pending tasks'}`;
             taskCreation: {
                 verbs: ['add', 'create', 'make', 'new', 'schedule', 'plan', 'remind', 'set up', 'book', 'arrange'],
                 timeIndicators: {
+                    // Basic time indicators
                     today: () => new Date(),
                     tomorrow: () => { const d = new Date(); d.setDate(d.getDate() + 1); return d; },
+                    yesterday: () => { const d = new Date(); d.setDate(d.getDate() - 1); return d; },
+                    
+                    // Week-based indicators
                     'next week': () => { const d = new Date(); d.setDate(d.getDate() + 7); return d; },
+                    'this week': () => new Date(),
+                    'last week': () => { const d = new Date(); d.setDate(d.getDate() - 7); return d; },
                     'this weekend': () => { const d = new Date(); const days = 6 - d.getDay(); d.setDate(d.getDate() + days); return d; },
-                    'monday': () => { const d = new Date(); const day = d.getDay(); const diff = d.getDate() - day + (day === 0 ? -6 : 1); d.setDate(diff); return d; },
-                    'friday': () => { const d = new Date(); const day = d.getDay(); const diff = d.getDate() - day + 5; d.setDate(diff); return d; }
+                    'next weekend': () => { const d = new Date(); const days = 13 - d.getDay(); d.setDate(d.getDate() + days); return d; },
+                    
+                    // Specific weekdays (next occurrence)
+                    'monday': () => this.getNextWeekday(1),
+                    'tuesday': () => this.getNextWeekday(2),
+                    'wednesday': () => this.getNextWeekday(3),
+                    'thursday': () => this.getNextWeekday(4),
+                    'friday': () => this.getNextWeekday(5),
+                    'saturday': () => this.getNextWeekday(6),
+                    'sunday': () => this.getNextWeekday(0),
+                    
+                    // Next specific weekdays
+                    'next monday': () => this.getNextWeekday(1, true),
+                    'next tuesday': () => this.getNextWeekday(2, true),
+                    'next wednesday': () => this.getNextWeekday(3, true),
+                    'next thursday': () => this.getNextWeekday(4, true),
+                    'next friday': () => this.getNextWeekday(5, true),
+                    'next saturday': () => this.getNextWeekday(6, true),
+                    'next sunday': () => this.getNextWeekday(0, true),
+                    
+                    // Month-based indicators
+                    'next month': () => { const d = new Date(); d.setMonth(d.getMonth() + 1, 1); return d; },
+                    'this month': () => new Date(),
+                    'end of month': () => { const d = new Date(); d.setMonth(d.getMonth() + 1, 0); return d; }
+                },
+                recurringPatterns: {
+                    daily: ['daily', 'every day', 'each day'],
+                    weekly: ['weekly', 'every week', 'each week'],
+                    monthly: ['monthly', 'every month', 'each month'],
+                    weekdays: ['weekdays', 'every weekday', 'monday to friday', 'mon-fri'],
+                    weekends: ['weekends', 'every weekend', 'saturday and sunday'],
+                    custom: {
+                        'every monday': { type: 'weekly', dayOfWeek: 1 },
+                        'every tuesday': { type: 'weekly', dayOfWeek: 2 },
+                        'every wednesday': { type: 'weekly', dayOfWeek: 3 },
+                        'every thursday': { type: 'weekly', dayOfWeek: 4 },
+                        'every friday': { type: 'weekly', dayOfWeek: 5 },
+                        'every saturday': { type: 'weekly', dayOfWeek: 6 },
+                        'every sunday': { type: 'weekly', dayOfWeek: 0 }
+                    }
                 },
                 priorityKeywords: {
                     high: ['urgent', 'important', 'critical', 'asap', 'priority', 'immediately', 'rush'],
@@ -2164,6 +2619,70 @@ ${recentTasks || 'No pending tasks'}`;
                 sequence: ['first', 'second', 'third', 'next', 'finally', 'then']
             }
         };
+    }
+
+    // Helper method for calculating next weekday occurrence
+    getNextWeekday(targetDay, forceNext = false) {
+        const today = new Date();
+        const currentDay = today.getDay();
+        let daysAhead = targetDay - currentDay;
+        
+        // If it's the same day and we don't force next week, return today
+        if (daysAhead === 0 && !forceNext) {
+            return today;
+        }
+        
+        // If the day has passed this week or we force next week, go to next week
+        if (daysAhead <= 0 || forceNext) {
+            daysAhead += 7;
+        }
+        
+        const nextDate = new Date(today);
+        nextDate.setDate(today.getDate() + daysAhead);
+        return nextDate;
+    }
+
+    // Theme Management
+    initializeTheme() {
+        // Load saved theme preference or default to light
+        const savedTheme = localStorage.getItem('theme') || 'light';
+        this.setTheme(savedTheme);
+        this.bindThemeToggle();
+    }
+
+    setTheme(theme) {
+        const root = document.documentElement;
+        const themeIcon = document.getElementById('theme-icon');
+        
+        if (theme === 'dark') {
+            root.setAttribute('data-theme', 'dark');
+            if (themeIcon) {
+                themeIcon.className = 'fas fa-sun text-yellow-400';
+            }
+        } else {
+            root.removeAttribute('data-theme');
+            if (themeIcon) {
+                themeIcon.className = 'fas fa-moon text-gray-700';
+            }
+        }
+        
+        // Save preference
+        localStorage.setItem('theme', theme);
+        this.currentTheme = theme;
+    }
+
+    toggleTheme() {
+        const newTheme = this.currentTheme === 'light' ? 'dark' : 'light';
+        this.setTheme(newTheme);
+    }
+
+    bindThemeToggle() {
+        const themeToggle = document.getElementById('theme-toggle');
+        if (themeToggle) {
+            themeToggle.addEventListener('click', () => {
+                this.toggleTheme();
+            });
+        }
     }
 
     debouncedRender() {
@@ -2295,6 +2814,7 @@ Only return valid JSON array. If no tasks found, return empty array [].`;
         let priority = 'medium';
         let dueDate = null;
         let category = null;
+        let recurring = null;
         
         // Remove command verbs and conversational phrases
         const verbs = [...this.nlpPatterns.taskCreation.verbs, 'i want to', 'i need to', 'i have to', 'can you add', 'could you add', 'please add'];
@@ -2324,6 +2844,34 @@ Only return valid JSON array. If no tasks found, return empty array [].`;
             }
         });
         
+        // Detect recurring patterns
+        const recurringPatterns = this.nlpPatterns.taskCreation.recurringPatterns;
+        
+        // Check for daily, weekly, monthly patterns
+        Object.entries(recurringPatterns).forEach(([type, keywords]) => {
+            if (Array.isArray(keywords)) {
+                keywords.forEach(keyword => {
+                    if (originalMessage.toLowerCase().includes(keyword)) {
+                        recurring = { type, interval: 1 };
+                        text = text.replace(new RegExp(`\\b${keyword}\\b`, 'gi'), '').trim();
+                    }
+                });
+            }
+        });
+        
+        // Check for custom recurring patterns (e.g., "every monday")
+        Object.entries(recurringPatterns.custom || {}).forEach(([phrase, config]) => {
+            if (originalMessage.toLowerCase().includes(phrase)) {
+                recurring = config;
+                text = text.replace(new RegExp(`\\b${phrase}\\b`, 'gi'), '').trim();
+                
+                // Set first occurrence date if it's a weekly recurring task
+                if (config.type === 'weekly' && config.dayOfWeek !== undefined && !dueDate) {
+                    dueDate = this.getNextWeekday(config.dayOfWeek).toISOString().split('T')[0];
+                }
+            }
+        });
+        
         // Detect category
         Object.entries(this.nlpPatterns.taskCreation.taskCategories).forEach(([cat, keywords]) => {
             keywords.forEach(keyword => {
@@ -2342,7 +2890,7 @@ Only return valid JSON array. If no tasks found, return empty array [].`;
         // Store user pattern for learning
         this.learnUserPattern({ text, priority, dueDate, category, originalMessage });
         
-        return { text, priority, dueDate, category };
+        return { text, priority, dueDate, category, recurring };
     }
 
     learnUserPattern(taskData) {
@@ -3212,7 +3760,13 @@ Example: ["Review weekly goals", "Plan weekend activities", "Check email"]`;
                 try {
                     const aiResponse = await this.queryKimiAI(userMessage);
                     if (aiResponse) {
-                        await this.handleKimiResponse(userMessage, aiResponse);
+                        const actionTaken = await this.handleKimiResponse(userMessage, aiResponse);
+                        if (actionTaken) {
+                            return;
+                        }
+                        // If the AI responded conversationally without taking action,
+                        // fall back to local intent parsing while preserving the reply
+                        await this.processLocalAI(userMessage, { skipChatResponse: true });
                         return;
                     }
                 } catch (error) {
@@ -3237,6 +3791,20 @@ Example: ["Review weekly goals", "Plan weekend activities", "Check email"]`;
             : [];
         parsedResponse.suggestions = this.sanitizeSuggestionList(parsedResponse.suggestions || []);
         let actionTaken = false;
+        const normalizeTaskText = (value) => this.sanitizePlainText(value || '').toLowerCase().replace(/\s+/g, ' ').trim();
+        let localParsedTasks = [];
+
+        try {
+            localParsedTasks = this.parseTasksLocally(userMessage || '').map(task => ({
+                textKey: normalizeTaskText(task.text),
+                dueDate: this.normalizeDueDate(task.dueDate)
+            })).filter(item => item.textKey && item.dueDate);
+        } catch (error) {
+            console.warn('Local task parsing fallback failed:', error);
+            localParsedTasks = [];
+        }
+
+        const localTaskDueDateMap = new Map(localParsedTasks.map(item => [item.textKey, item.dueDate]));
 
         // Handle the AI response based on action type
         switch (parsedResponse.action) {
@@ -3245,6 +3813,16 @@ Example: ["Review weekly goals", "Plan weekend activities", "Check email"]`;
                     const addedTasks = [];
 
                     parsedResponse.tasks.forEach(taskData => {
+                        const taskTextKey = normalizeTaskText(taskData.text);
+                        const localDueDate = taskTextKey ? localTaskDueDateMap.get(taskTextKey) : null;
+                        if (localDueDate) {
+                            taskData.dueDate = localDueDate;
+                        }
+
+                        if (taskData.dueDate) {
+                            taskData.dueDate = this.normalizeDueDate(taskData.dueDate);
+                        }
+
                         // Enhance task with AI suggestions
                         if (!taskData.dueDate) {
                             taskData.dueDate = this.suggestDueDate(taskData.text);
@@ -3269,11 +3847,37 @@ Example: ["Review weekly goals", "Plan weekend activities", "Check email"]`;
                 break;
                 
             case 'delete_task':
-                const deletionResult = this.deleteTaskByName(userMessage);
-                if (deletionResult.success) {
+                let deletionResult = null;
+
+                if (Array.isArray(parsedResponse.tasks) && parsedResponse.tasks.length > 0) {
+                    for (const taskData of parsedResponse.tasks) {
+                        if (taskData.id) {
+                            const resultById = this.deleteTaskById(taskData.id, { silent: true });
+                            if (resultById && resultById.success) {
+                                deletionResult = resultById;
+                                break;
+                            }
+                        }
+
+                        if (!deletionResult && taskData.text) {
+                            const fallbackMessage = `delete ${taskData.text}`;
+                            const resultByText = this.deleteTaskByName(fallbackMessage);
+                            if (resultByText && resultByText.success) {
+                                deletionResult = resultByText;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (!deletionResult) {
+                    deletionResult = this.deleteTaskByName(userMessage);
+                }
+
+                if (deletionResult && deletionResult.success) {
                     actionTaken = true;
                     parsedResponse.response = this.sanitizeAIResponseText(`🗑️ Deleted "${deletionResult.taskName}" from your tasks.`);
-                } else if (deletionResult.message) {
+                } else if (deletionResult && deletionResult.message) {
                     parsedResponse.response = this.sanitizeAIResponseText(deletionResult.message);
                 }
                 break;
@@ -3302,9 +3906,12 @@ Example: ["Review weekly goals", "Plan weekend activities", "Check email"]`;
         if (actionTaken) {
             this.debouncedRender();
         }
+
+        return actionTaken;
     }
 
-    async processLocalAI(userMessage) {
+    async processLocalAI(userMessage, options = {}) {
+        const { skipChatResponse = false } = options;
         // Original local AI logic as fallback with enhanced understanding
         const lowercaseMessage = userMessage.toLowerCase();
         let response = '';
@@ -3469,7 +4076,9 @@ Example: ["Review weekly goals", "Plan weekend activities", "Check email"]`;
             response = "I'm here to help with your tasks! Try saying things like 'add a task', 'show my tasks', or 'what's due today?'";
         }
 
-        this.addChatMessage('ai', response);
+        if (!skipChatResponse) {
+            this.addChatMessage('ai', response);
+        }
 
         if (actionTaken) {
             this.debouncedRender();
@@ -4007,9 +4616,55 @@ Example: ["Review weekly goals", "Plan weekend activities", "Check email"]`;
             }
 
             // Find all matching tasks
-            const matchingTasks = this.tasks.filter(t =>
+            const { normalized: queryString, tokens: queryTokens, hasTokens } = this.normalizeTextForMatching(taskName);
+
+            const directMatches = this.tasks.filter(t =>
                 t.text.toLowerCase().includes(taskName.toLowerCase())
             );
+
+            const scoredMatches = this.tasks.map(task => {
+                const { normalized, tokens } = this.normalizeTextForMatching(task.text);
+                const tokenSet = new Set(tokens);
+                const intersection = hasTokens ? queryTokens.filter(token => tokenSet.has(token)) : [];
+                const intersectionCount = intersection.length;
+                const ratio = hasTokens && queryTokens.length > 0 ? intersectionCount / queryTokens.length : 0;
+                const normalizedIncludes = queryString && normalized.includes(queryString);
+                const score = ratio + (normalizedIncludes ? 0.5 : 0);
+
+                return {
+                    task,
+                    score,
+                    intersectionCount,
+                    ratio,
+                    normalizedIncludes
+                };
+            }).filter(match => match.score > 0 || match.normalizedIncludes);
+
+            const combinedMatches = [...new Set([...directMatches, ...scoredMatches.map(m => m.task)])];
+
+            const prioritizeMatches = combinedMatches.map(task => {
+                const scored = scoredMatches.find(m => m.task.id === task.id);
+                const score = scored ? scored.score : (task.text.toLowerCase().includes(taskName.toLowerCase()) ? 1 : 0);
+                const intersectionCount = scored ? scored.intersectionCount : 0;
+                const ratio = scored ? scored.ratio : 0;
+
+                return {
+                    task,
+                    score,
+                    intersectionCount,
+                    ratio
+                };
+            })
+                .filter(entry => entry.score > 0 || entry.intersectionCount > 0)
+                .sort((a, b) => b.score - a.score || b.intersectionCount - a.intersectionCount);
+
+            const thresholdMatches = prioritizeMatches.filter(entry =>
+                entry.score >= 0.5 || entry.intersectionCount >= 2 || (entry.intersectionCount >= 1 && queryTokens.length <= 3)
+            );
+
+            const matchingTasks = thresholdMatches.length > 0
+                ? thresholdMatches.map(entry => entry.task)
+                : prioritizeMatches.map(entry => entry.task);
 
             if (matchingTasks.length === 0) {
                 return {
@@ -4061,7 +4716,8 @@ Example: ["Review weekly goals", "Plan weekend activities", "Check email"]`;
         // Remove common command words and extract the task name
         let taskName = message.replace(/^(complete|mark|delete|remove|done|finished|cancel)\s+/i, '');
         taskName = taskName.replace(/\s+(as\s+)?(complete|done|finished)$/i, '');
-        return taskName.trim();
+        taskName = taskName.replace(/\b(?:please|kindly|the|a|an)\b/gi, ' ');
+        return taskName.replace(/\s+/g, ' ').trim();
     }
 
     getTaskStatistics() {

@@ -1,5 +1,88 @@
 /* Custom styles to enhance the To-Do List application */
 
+/* CSS Custom Properties for Theme Support */
+:root {
+    /* Light Theme (default) */
+    --bg-primary: #ffffff;
+    --bg-secondary: #f8fafc;
+    --bg-tertiary: #f1f5f9;
+    --text-primary: #1f2937;
+    --text-secondary: #6b7280;
+    --text-muted: #9ca3af;
+    --border-color: #e5e7eb;
+    --border-hover: #d1d5db;
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+    
+    /* Priority Colors */
+    --priority-high-bg: #fef2f2;
+    --priority-high-text: #dc2626;
+    --priority-medium-bg: #fefbeb;
+    --priority-medium-text: #d97706;
+    --priority-low-bg: #f0fdf4;
+    --priority-low-text: #16a34a;
+    
+    /* Status Colors */
+    --overdue-bg: #fef2f2;
+    --overdue-border: #ef4444;
+    --due-soon-bg: #fffbeb;
+    --due-soon-border: #f59e0b;
+    --completed-text: #6b7280;
+}
+
+/* Dark Theme */
+[data-theme="dark"] {
+    --bg-primary: #1f2937;
+    --bg-secondary: #111827;
+    --bg-tertiary: #374151;
+    --text-primary: #f9fafb;
+    --text-secondary: #d1d5db;
+    --text-muted: #9ca3af;
+    --border-color: #4b5563;
+    --border-hover: #6b7280;
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.4);
+    
+    /* Priority Colors (Dark Mode) */
+    --priority-high-bg: #450a0a;
+    --priority-high-text: #fca5a5;
+    --priority-medium-bg: #451a03;
+    --priority-medium-text: #fed7aa;
+    --priority-low-bg: #14532d;
+    --priority-low-text: #bbf7d0;
+    
+    /* Status Colors (Dark Mode) */
+    --overdue-bg: #450a0a;
+    --overdue-border: #f87171;
+    --due-soon-bg: #451a03;
+    --due-soon-border: #fbbf24;
+    --completed-text: #9ca3af;
+}
+
+/* Base theme styles */
+body {
+    background-color: var(--bg-secondary);
+    color: var(--text-primary);
+}
+
+.bg-white {
+    background-color: var(--bg-primary) !important;
+}
+
+.text-gray-800 {
+    color: var(--text-primary) !important;
+}
+
+.text-gray-600 {
+    color: var(--text-secondary) !important;
+}
+
+.border-gray-300 {
+    border-color: var(--border-color) !important;
+}
+
 /* Smooth transitions for all interactive elements */
 * {
     transition: all 0.2s ease-in-out;
@@ -93,6 +176,20 @@ textarea[aria-invalid="true"] {
     pointer-events: none;
 }
 
+/* Theme Toggle Button */
+#theme-toggle {
+    background-color: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    box-shadow: var(--shadow-sm);
+}
+
+#theme-toggle:hover {
+    background-color: var(--bg-secondary);
+    border-color: var(--border-hover);
+    box-shadow: var(--shadow-md);
+}
+
 /* Priority badge styles */
 .priority-badge {
     display: inline-flex;
@@ -108,18 +205,18 @@ textarea[aria-invalid="true"] {
 }
 
 .priority-high {
-    background-color: #fee2e2;
-    color: #991b1b;
+    background-color: var(--priority-high-bg);
+    color: var(--priority-high-text);
 }
 
 .priority-medium {
-    background-color: #fef3c7;
-    color: #92400e;
+    background-color: var(--priority-medium-bg);
+    color: var(--priority-medium-text);
 }
 
 .priority-low {
-    background-color: #d1fae5;
-    color: #065f46;
+    background-color: var(--priority-low-bg);
+    color: var(--priority-low-text);
 }
 
 /* Category badge styles */
@@ -204,13 +301,13 @@ textarea[aria-invalid="true"] {
 }
 
 .task-item.overdue {
-    border-left: 4px solid #ef4444;
-    background-color: #fef2f2;
+    border-left: 4px solid var(--overdue-border);
+    background-color: var(--overdue-bg);
 }
 
 .task-item.due-soon {
-    border-left: 4px solid #f59e0b;
-    background-color: #fffbeb;
+    border-left: 4px solid var(--due-soon-border);
+    background-color: var(--due-soon-bg);
 }
 
 /* Checkbox styling */
@@ -247,6 +344,93 @@ textarea[aria-invalid="true"] {
     color: white;
     font-size: 0.875rem;
     font-weight: bold;
+}
+
+/* Subtask styling */
+.subtasks-container {
+    border-top: 1px solid var(--border-color);
+    padding-top: 0.75rem;
+    margin-top: 0.75rem;
+}
+
+.subtask-item {
+    padding: 0.5rem 0;
+    border-radius: 0.25rem;
+    transition: background-color 0.2s ease;
+}
+
+.subtask-item:hover {
+    background-color: var(--bg-secondary);
+}
+
+.subtask-checkbox {
+    width: 1rem;
+    height: 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: 0.125rem;
+    background: var(--bg-primary);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+}
+
+.subtask-checkbox:hover {
+    border-color: #3b82f6;
+}
+
+.subtask-checkbox.checked {
+    background-color: #3b82f6;
+    border-color: #3b82f6;
+}
+
+.subtask-checkbox.checked::after {
+    content: '✓';
+    color: white;
+    font-size: 0.75rem;
+    font-weight: bold;
+}
+
+.subtask-text {
+    font-size: 0.875rem;
+    flex-grow: 1;
+    margin: 0 0.5rem;
+}
+
+.btn-delete-subtask {
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    padding: 0.25rem;
+    border-radius: 0.25rem;
+    color: #ef4444;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+}
+
+.subtask-item:hover .btn-delete-subtask {
+    opacity: 1;
+}
+
+.btn-delete-subtask:hover {
+    background-color: #fee2e2;
+}
+
+/* Enhanced action buttons */
+.btn-subtask {
+    color: #059669;
+    background-color: transparent;
+    border: 1px solid transparent;
+    padding: 0.375rem 0.5rem;
+    border-radius: 0.375rem;
+    transition: all 0.2s ease;
+}
+
+.btn-subtask:hover {
+    background-color: #ecfdf5;
+    border-color: #d1fae5;
 }
 
 /* Button hover effects */

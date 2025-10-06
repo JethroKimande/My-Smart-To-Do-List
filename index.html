@@ -10,10 +10,20 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body class="bg-gray-100 min-h-screen">
-    <a href="#main-content" class="skip-link">Skip to main content</a>
+    <a href="#main-content" class="skip-link"></a>
     <div class="container mx-auto px-4 py-8 max-w-4xl">
         <!-- Header -->
-        <header class="text-center mb-8" role="banner">
+        <header class="text-center mb-8 relative" role="banner">
+            <!-- Theme Toggle Button -->
+            <button 
+                id="theme-toggle" 
+                class="absolute top-0 right-0 p-2 rounded-lg bg-white shadow-md border border-gray-200 hover:bg-gray-50 transition-colors duration-200"
+                aria-label="Toggle dark/light theme"
+                title="Toggle theme"
+            >
+                <i id="theme-icon" class="fas fa-moon text-gray-700"></i>
+            </button>
+            
             <h1 class="text-4xl font-bold text-gray-800 mb-2">
                 <i class="fas fa-tasks text-blue-600"></i>
                 My Smart To-Do List
